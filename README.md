@@ -46,6 +46,8 @@ langchain
 langchain_ollama
 langchain_community
 streamlit-chat
+pypdf
+chromadb
 ```
 
 ### 4. Pull Required Models for Ollama
@@ -125,6 +127,8 @@ You can modify the following parameters in `rag.py` to suit your needs:
 - **Streamlit**: Web framework for the user interface.
 - **Ollama**: For embedding and LLM models.
 - **LangChain**: Core framework for RAG.
+- **PyPDF**: For PDF document processing.
+- **ChromaDB**: Vector store for document embeddings.
 
 ---
 
