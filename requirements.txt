@@ -3,3 +3,5 @@ langchain
 langchain_ollama
 langchain_community
 streamlit-chat
+pypdf
+chromadb
