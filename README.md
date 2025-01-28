@@ -1,4 +1,4 @@
-# ChatPDF with Enhanced RAG
+# Local ChatPDF with DeepSeek R1
 
 **ChatPDF** is a Retrieval-Augmented Generation (RAG) application that allows users to upload PDF documents and interact with them through a chatbot interface. The system uses advanced embedding models and a local vector store for efficient and accurate question-answering.
 
@@ -19,8 +19,8 @@ Follow the steps below to set up and run the application:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/chatpdf-rag.git
-cd chatpdf-rag
+git clone https://github.com/paquino11/chatpdf-rag-deepseek-r1.git
+cd chatpdf-rag-deepseek-r1
 ```
 
 ### 2. Create a Virtual Environment
