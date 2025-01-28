@@ -6,7 +6,7 @@ import streamlit as st
 from streamlit_chat import message
 from rag import ChatPDF
 
-st.set_page_config(page_title="Local ChatPDF with DeepSeek R1")
+st.set_page_config(page_title="RAG with Local DeepSeek R1")
 
 
 def display_messages():
@@ -63,7 +63,7 @@ def page():
         st.session_state["messages"] = []
         st.session_state["assistant"] = ChatPDF()
 
-    st.header("Local ChatPDF with DeepSeek R1")
+    st.header("RAG with Local DeepSeek R1")
 
     st.subheader("Upload a Document")
     st.file_uploader(
