@@ -19,20 +19,8 @@ def display_messages():
     """Display the chat history."""
     st.subheader("Chat History")
     for i, (msg, is_user) in enumerate(st.session_state["messages"]):
-        message(msg, is_user=is_user, key=str(i))
+        message(msg, is_user=is_user, key=str(i), allow_html=(not is_user))
     st.session_state["thinking_spinner"] = st.empty()
-
-def anytype_link(title: str, object_id: str, space_id: str):
-        deeplink = f"anytype://object?objectId={object_id}&spaceId={space_id}"
-        html = f"""
-        <script>
-            function openAnytypeLink() {{
-                window.location.href = "{deeplink}";
-            }}
-        </script>
-        <button onclick="openAnytypeLink()">{title}</button>
-        """
-        components.html(html, height=50)
 
 def process_input():
     """Process the user input and generate an assistant response."""
@@ -40,7 +28,7 @@ def process_input():
         user_text = st.session_state["user_input"].strip()
         with st.session_state["thinking_spinner"], st.spinner("Thinking..."):
             try:
-                agent_text, retrieved_docs = st.session_state["assistant"].ask(
+                agent_text = st.session_state["assistant"].ask(
                     user_text,
                     k=st.session_state["retrieval_k"],
                     score_threshold=st.session_state["retrieval_threshold"],
@@ -50,14 +38,6 @@ def process_input():
 
         st.session_state["messages"].append((user_text, True))
         st.session_state["messages"].append((agent_text, False))
-
-        for doc in retrieved_docs:
-            title = doc.metadata.get("title", "Untitled")
-            object_id = doc.metadata.get("id")
-            space_id = doc.metadata.get("space_id") or doc.metadata.get("spaceId")
-            
-            if object_id and space_id:
-                anytype_link(title, object_id, space_id)
 
 
 def read_and_save_file():

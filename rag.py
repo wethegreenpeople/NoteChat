@@ -18,7 +18,6 @@ from langchain_openai import ChatOpenAI
 import logging
 import os
 
-os.environ["OPENAI_API_KEY"] = ""
 
 set_debug(True)
 set_verbose(True)
@@ -183,8 +182,14 @@ class ChatPDF:
 
         logger.info("Generating response using the LLM.")
         answer = chain.invoke(formatted_input)
+        references = "\n\n### References:\n" + "\n".join([
+            f"<a href='anytype://object?objectId={i.metadata.get('id')}&spaceId={i.metadata.get('space_id')}'>{i.metadata.get('title', 'Untitled')}</a>"
+            for i in retrieved_docs
+            if i.metadata.get('id') and i.metadata.get('space_id')
+        ])
 
-        return answer, retrieved_docs
+
+        return answer + references
 
     def clear(self):
         """
