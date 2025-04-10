@@ -1,12 +1,18 @@
 # app.py
+import asyncio
 import os
 import tempfile
 import time
 import streamlit as st
+from anytypestore import AnyTypeStore
 from streamlit_chat import message
 from rag import ChatPDF
 
-st.set_page_config(page_title="RAG with Local DeepSeek R1")
+import streamlit.components.v1 as components
+import nest_asyncio
+nest_asyncio.apply() 
+
+st.set_page_config(page_title="RAG on notes")
 
 
 def display_messages():
@@ -16,6 +22,17 @@ def display_messages():
         message(msg, is_user=is_user, key=str(i))
     st.session_state["thinking_spinner"] = st.empty()
 
+def anytype_link(title: str, object_id: str, space_id: str):
+        deeplink = f"anytype://object?objectId={object_id}&spaceId={space_id}"
+        html = f"""
+        <script>
+            function openAnytypeLink() {{
+                window.location.href = "{deeplink}";
+            }}
+        </script>
+        <button onclick="openAnytypeLink()">{title}</button>
+        """
+        components.html(html, height=50)
 
 def process_input():
     """Process the user input and generate an assistant response."""
@@ -23,7 +40,7 @@ def process_input():
         user_text = st.session_state["user_input"].strip()
         with st.session_state["thinking_spinner"], st.spinner("Thinking..."):
             try:
-                agent_text = st.session_state["assistant"].ask(
+                agent_text, retrieved_docs = st.session_state["assistant"].ask(
                     user_text,
                     k=st.session_state["retrieval_k"],
                     score_threshold=st.session_state["retrieval_threshold"],
@@ -33,6 +50,14 @@ def process_input():
 
         st.session_state["messages"].append((user_text, True))
         st.session_state["messages"].append((agent_text, False))
+
+        for doc in retrieved_docs:
+            title = doc.metadata.get("title", "Untitled")
+            object_id = doc.metadata.get("id")
+            space_id = doc.metadata.get("space_id") or doc.metadata.get("spaceId")
+            
+            if object_id and space_id:
+                anytype_link(title, object_id, space_id)
 
 
 def read_and_save_file():
@@ -56,6 +81,33 @@ def read_and_save_file():
         )
         os.remove(file_path)
 
+def ingest_from_anytype():
+    st.session_state["assistant"].clear()
+    st.session_state["messages"] = []
+    st.session_state["user_input"] = ""
+
+    with st.session_state["ingestion_spinner"], st.spinner("Ingesting from AnyType..."):
+        t0 = time.time()
+        store = AnyTypeStore()
+        offset = 0
+        documents_raw = []
+
+        while True:
+            result = asyncio.run(store.query_documents_async(offset, 50, ""))
+            documents_raw.extend(result.get("data", []))
+
+            pagination = result.get("pagination", {})
+            if not pagination.get("has_more", False):
+                break
+
+            offset += 50
+        docs = st.session_state["assistant"].ingest_anytype(documents_raw)
+        t1 = time.time()
+
+        st.session_state["messages"].append(
+            (f"Ingested {len(documents_raw)} pages from AnyType in {t1 - t0:.2f} seconds", False)
+        )
+
 
 def page():
     """Main app page layout."""
@@ -74,6 +126,9 @@ def page():
         label_visibility="collapsed",
         accept_multiple_files=True,
     )
+
+    if st.button("Ingest from AnyType"):
+        ingest_from_anytype()
 
     st.session_state["ingestion_spinner"] = st.empty()
 
@@ -96,5 +151,14 @@ def page():
         st.session_state["assistant"].clear()
 
 
+async def main():
+    store = AnyTypeStore()
+    # challengeId = await store.get_challenge("AnyTypeChat")
+    # result = await store.get_token(challengeId, input())
+    # print("Result:", result)
+    # doc = await store.get_documents_async(50, 1)
+    # print(doc)
+
 if __name__ == "__main__":
+    asyncio.run(main())
     page()

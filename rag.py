@@ -8,7 +8,17 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_core.prompts import ChatPromptTemplate
+from langchain.retrievers import ParentDocumentRetriever
+from langchain.storage import InMemoryStore
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import JSONLoader
+from langchain_core.documents import Document
+from langchain_openai import ChatOpenAI
 import logging
+import os
+
+os.environ["OPENAI_API_KEY"] = ""
 
 set_debug(True)
 set_verbose(True)
@@ -20,11 +30,18 @@ logger = logging.getLogger(__name__)
 class ChatPDF:
     """A class for handling PDF ingestion and question answering using RAG."""
 
-    def __init__(self, llm_model: str = "deepseek-r1:latest", embedding_model: str = "mxbai-embed-large"):
+    def __init__(self, llm_model: str = "mistral:latest", embedding_model: str = "mxbai-embed-large"):
         """
         Initialize the ChatPDF instance with an LLM and embedding model.
         """
-        self.model = ChatOllama(model=llm_model)
+        # self.model = ChatOllama(model=llm_model)
+        self.model = ChatOpenAI(
+            model="gpt-4o",
+            temperature=0,
+            max_tokens=None,
+            timeout=None,
+            max_retries=2
+        )
         self.embeddings = OllamaEmbeddings(model=embedding_model)
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=100)
         self.prompt = ChatPromptTemplate.from_template(
@@ -36,7 +53,7 @@ class ChatPDF:
             Question:
             {question}
             
-            Answer concisely and accurately in three sentences or less.
+            Answer concisely and accurately in three sentences or less. If you are not confident in any answer based on the provided context, say "I'm not sure about that" exactly, and then provide your best guess at the.
             """
         )
         self.vector_store = None
@@ -48,14 +65,85 @@ class ChatPDF:
         """
         logger.info(f"Starting ingestion for file: {pdf_file_path}")
         docs = PyPDFLoader(file_path=pdf_file_path).load()
-        chunks = self.text_splitter.split_documents(docs)
-        chunks = filter_complex_metadata(chunks)
+        docs = filter_complex_metadata(docs)
 
-        self.vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=self.embeddings,
+        self.vector_store = Chroma(collection_name="full_documents",
+            embedding_function=self.embeddings,
             persist_directory="chroma_db",
         )
+        self.store = InMemoryStore()
+        self.retriever = ParentDocumentRetriever(
+                search_type="similarity_score_threshold",
+                search_kwargs={"k": 5, "score_threshold": 0.20},
+                vectorstore=self.vector_store,
+                docstore=self.store,
+                child_splitter=self.text_splitter,
+            )
+        self.retriever.add_documents(docs)
+        logger.info("Ingestion completed. Document embeddings stored successfully.")
+
+    def ingest_anytype(self, jsonDocs):
+        docs = []
+
+        for page in jsonDocs:
+            page_id = page.get("id", "")
+            title = page.get("name", "")
+            snippet = page.get("snippet", "")
+
+            # Extract visible text from blocks
+            blocks = page.get("blocks", [])
+            block_texts = [
+                block.get("text", {}).get("text", "")
+                for block in blocks
+                if "text" in block and block["text"].get("text")
+            ]
+            full_content = "\n".join([snippet] + block_texts).strip()
+
+            # Extract metadata
+            tags = [
+                tag["name"] for tag in page.get("details", []) 
+                if tag["id"] == "tags"
+                for tag in tag.get("details", {}).get("tags", [])
+            ]
+
+            author = next((
+                detail["details"]["details"].get("name", "Unknown")
+                for detail in page.get("details", [])
+                if detail["id"] == "created_by"
+            ), "Unknown")
+
+            created = next((
+                detail["details"].get("created_date")
+                for detail in page.get("details", [])
+                if detail["id"] == "created_date"
+            ), None)
+
+            docs.append(Document(
+                page_content=full_content,
+                metadata={
+                    "id": page_id,
+                    "title": title,
+                    "author": author,
+                    "created_date": created,
+                    "tags": tags,
+                    "space_id": page.get("space_id")
+                }
+            ))
+        docs = filter_complex_metadata(docs)
+
+        self.vector_store = Chroma(collection_name="full_documents",
+            embedding_function=self.embeddings,
+            persist_directory="chroma_db",
+        )
+        self.store = InMemoryStore()
+        self.retriever = ParentDocumentRetriever(
+                search_type="similarity_score_threshold",
+                search_kwargs={"k": 5, "score_threshold": 0.20},
+                vectorstore=self.vector_store,
+                docstore=self.store,
+                child_splitter=self.text_splitter,
+            )
+        self.retriever.add_documents(docs)
         logger.info("Ingestion completed. Document embeddings stored successfully.")
 
     def ask(self, query: str, k: int = 5, score_threshold: float = 0.2):
@@ -66,9 +154,12 @@ class ChatPDF:
             raise ValueError("No vector store found. Please ingest a document first.")
 
         if not self.retriever:
-            self.retriever = self.vector_store.as_retriever(
+             self.retriever = ParentDocumentRetriever(
                 search_type="similarity_score_threshold",
                 search_kwargs={"k": k, "score_threshold": score_threshold},
+                vectorstore=self.vector_store,
+                docstore=self.store,
+                child_splitter=self.text_splitter,
             )
 
         logger.info(f"Retrieving context for query: {query}")
@@ -76,7 +167,7 @@ class ChatPDF:
 
         if not retrieved_docs:
             return "No relevant context found in the document to answer your question."
-
+        
         formatted_input = {
             "context": "\n\n".join(doc.page_content for doc in retrieved_docs),
             "question": query,
@@ -91,7 +182,9 @@ class ChatPDF:
         )
 
         logger.info("Generating response using the LLM.")
-        return chain.invoke(formatted_input)
+        answer = chain.invoke(formatted_input)
+
+        return answer, retrieved_docs
 
     def clear(self):
         """
